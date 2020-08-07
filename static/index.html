@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="cn">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width,initial-scale=1.0">
+   <meta http-equiv="X-UA-Compatible" content="ie=edge">
+   <script src="https://cdn.bootcss.com/axios/0.18.0/axios.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/spark-md5/3.0.0/spark-md5.js"></script>
+   <title>Document</title>
+   <style> 
+    #progress_bar { margin: 10px 0; padding: 3px; border: 1px solid #000; font-size: 14px; clear: both; opacity: 0; } 
+
+    #progress_bar.loading { opacity: 1.0; } 
+    #progress_bar .percent { background-color: #99ccff; height: auto; width: 0; }
+  </style>
+</head>
+<body>
+    <input type="file" name="files" id="uploadFile">
+    <div>
+        <button id="submitBtn">点击上传文件</button>
+    </div>
+    <!-- 进度条（先隐藏） -->
+    <div id="progress_bar">
+        <div class="percent">0%</div>
+      </div>
+    <script>
+       const submitBtn = document.getElementById('submitBtn');
+       var progress = document.querySelector('.percent');
+       var controlBtn = document.querySelector('.controlBtn');
+
+       submitBtn.addEventListener('click',async ()=>{
+            progress.style.width = '0%'; 
+            progress.textContent = '0%'; 
+            const file = document.getElementById("uploadFile").files[0];
+            const chunkSize = 1*1024*1024;//定义分片大小
+            const chunks = Math.ceil(file.size/chunkSize);// 分片数量
+            const blobSlice = //使用Blob.slice方法来对文件进行分割。同时该方法在不同的浏览器使用方式不同。
+                File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice;
+            const hash = await hashFiles(file,chunkSize,chunks,blobSlice);
+            if(!file){
+                alert('文件不存在！')
+                return;
+            }
+
+            const axiosPromiseArray = [];
+            for(let i = 0;i<chunks;i++){
+                console.log(i)
+                const start = i * chunkSize;
+                const end = Math.min(file.size, start + chunkSize);
+                const form = new FormData();
+                form.append('file',blobSlice.call(file,start,end));
+                form.append('name',file.name);
+                form.append('total',chunks);
+                form.append('index',i);
+                form.append('size', file.size);
+                form.append('hash',hash);
+                // ajax提交 分片，此时 content-type 为 multipart/form-data
+                const axiosOptions = {
+                    onUploadProgress: evt => {
+                        // 处理上传的进度
+                        console.log(i,chunks);
+                        var percentLoaded = Math.ceil( i / chunks * 100);  
+                        progress.style.width = percentLoaded + '%'; 
+                        progress.textContent = percentLoaded + '%'; 
+                    } 
+                };  
+                // 加入到 Promise 数组中
+                axiosPromiseArray.push(axios
+                    .post('/file/upload', form, axiosOptions))
+            }
+                // 所有分片上传后，请求合并分片文件
+                await axios.all(axiosPromiseArray).then(() => {
+                    // 合并chunks
+                    const data = {
+                        size: file.size,
+                        name: file.name,
+                        total: chunks,
+                        hash
+                    };
+                    axios
+                        .post('/file/merge_chunks', data)
+                        .then(res => {
+                            // console.log('上传成功');
+                            // console.log(res.data, file);
+                            progress.style.width = '100%'; 
+                            progress.textContent = '100%';
+                           console.log('上传成功');
+                        })
+                        .catch(err => {
+                            console.log(err);
+                    });
+                });
+        });
+
+
+       function hashFiles(file,chunkSize,chunks,blobSlice){
+           return new Promise((resolve,reject) => {
+                let chunk = 0;
+                const spark = new SparkMD5.ArrayBuffer();
+                const reader = new FileReader();
+                reader.onloadstart = loadStart;
+                reader.onload =  function (evt){
+                    spark.append(evt.target.result)
+                    chunk++;
+                    if(chunk < chunks){
+                        loadNext();
+                    }else{
+                        console.log('finished loading');
+                        // 分片传输完毕
+                        const result = spark.end();//基于文件内容(每个分片）生成一个hash值
+                        // 如果单纯的使用result 作为hash值的时候, 如果文件内容相同，而名称不同的时候
+                        // 想保留两个文件无法保留。所以把文件名称加上。
+                        const spakrMd5 = new SparkMD5();
+                        spakrMd5.append(result);
+                        spakrMd5.append(file.name);
+                        const hexhash = spakrMd5.end();
+                        resolve(hexhash);
+                    }
+                };
+                reader.onerror = loadError;
+                function loadNext(){
+                    const start = chunk*chunkSize;
+                    const end = start + chunkSize >= file.size ? file.size:start + chunkSize;
+                    reader.readAsArrayBuffer(blobSlice.call(file, start, end));//将文件读取为二进制码
+                }
+                loadNext();
+            })
+            .catch(err => {
+                console.log(err)
+            })
+       }
+       
+       function loadError(){
+            console.warn('文件读取失败！')
+       }
+       function loadStart() {    
+            document.getElementById('progress_bar').className = 'loading'; 
+        };
+    </script>
+   
+</body>
+</html>

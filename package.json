@@ -1,0 +1,19 @@
+{
+  "name": "test-upload",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "fs-extra": "^9.0.1",
+    "koa-body": "^4.2.0",
+    "koa-multer": "^1.0.2",
+    "koa-router": "^9.1.0",
+    "koa-static": "^5.0.0",
+    "spark-md5": "^3.0.1"
+  }
+}
